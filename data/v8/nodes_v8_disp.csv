@@ -1,0 +1,8 @@
+node_id,type,weight,discharge,elevation,max_supply_head,disuse,use_pump_curve,ind_ratio,name,Gebiedsnr,lat,lon
+1,demand,1,18.75,0,NA,0,0,0,Vlieland,FRL-01-01,53.26,4.96
+2,demand,1,10.15,0,NA,0,0,0,Oosterend,FRL-02-01,53.42,5.43
+3,demand,1,48.56,0,NA,0,0,0,West-Terschelling,FRL-02-02,53.38,5.24
+…,…,…,…,…,…,…,…,…,…,…,…,…
+40,supply,1,16.97,0,10000,0,0,0,Schiermonnikoog,NA,53.47,6.15
+41,supply,1,1539.41,0,10000,0,0,0,Spannenburg,NA,52.92,5.69
+42,supply,1,28.44,0,10000,0,0,0,Hollum,NA,53.45,5.63

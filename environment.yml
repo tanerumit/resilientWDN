@@ -1,0 +1,21 @@
+name: resilientWDN
+
+channels:
+  - anaconda
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.7
+  - jupyterlab
+  - xarray
+  - numpy
+  - pandas
+  - pip
+  - geopandas
+  - scipy
+  - rasterio
+  - scipy
+  - geopandas
+  - matplotlib
+  - pip:
+    - casadi

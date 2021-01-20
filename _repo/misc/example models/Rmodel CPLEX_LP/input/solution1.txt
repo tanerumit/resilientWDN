@@ -1,0 +1,19 @@
+Total Cost (euros): 300 
+S1_to_D1 = 100 cost: 100 
+S1_to_D2 = 0 cost: 0 
+S1_to_D3 = 0 cost: 0 
+S1_to_D4 = 0 cost: 0 
+S1_to_D5 = 0 cost: 0 
+S1_to_D6 = 0 cost: 0 
+S2_to_D1 = 80 cost: 80 
+S2_to_D2 = 20 cost: 20 
+S2_to_D3 = 0 cost: 0 
+S2_to_D4 = 0 cost: 0 
+S2_to_D5 = 0 cost: 0 
+S2_to_D6 = 0 cost: 0 
+S3_to_D1 = 0 cost: 0 
+S3_to_D2 = 100 cost: 100 
+S3_to_D3 = 0 cost: 0 
+S3_to_D4 = 0 cost: 0 
+S3_to_D5 = 0 cost: 0 
+S3_to_D6 = 0 cost: 0

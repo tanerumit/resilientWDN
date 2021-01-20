@@ -1,0 +1,120 @@
+---
+title: "VITENS_Network_Analysis"
+author: "Umit Taner"
+date: "4-2-2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r data}
+
+library(igraph)
+library(ggplot2)
+library(cowplot)
+
+# Read_in node and pipe schematic from csv files: 
+nodes_friesland16_dummy <- read.csv("vitens_nodes_dummy.csv")  
+pipes_friesland16_dummy_iso  <- read.csv("vitens_pipes_dummy_isolate.csv")
+pipes_friesland16_dummy_link <- read.csv("vitens_pipes_dummy_combined.csv")
+load("mapFriesland.rda")
+
+```
+
+## Two extreme network arrangements
+
+```{r network-figures, echo=FALSE}
+
+# Network topography (isolated)
+p1 <- visualizeWDN(nodes_friesland16_dummy, pipes_friesland16_dummy_iso, mapFriesland)
+#ggsave(filename = "./graphics/wdn_isolated.png", width = 8, height = 8)
+
+# Network topography (linked)
+p2 <- visualizeWDN(nodes_friesland16_dummy, pipes_friesland16_dummy_link, mapFriesland) 
+#ggsave(filename = "./graphics/wdn_isolated.png", width = 8, height = 8)
+
+plot_grid(p1, p2, nrow = 1, labels = c("Isolated", "Linked"), )
+
+```
+
+```{r network-analysis, echo=FALSE}
+
+# Network Analysis statistics
+nodes_df <- nodes_friesland16_dummy
+pipes_df <- pipes_friesland16_dummy_iso
+
+# Develop network in igraph
+nodes_igraph <- nodes_df %>% select(name = node_id, type:disuse, lat, lon)
+pipes_igraph <- pipes_df %>% select(from = start, to = end, length:disuse)
+
+net <- graph_from_data_frame(d=pipes_igraph, vertices=nodes_igraph, directed=T) 
+net_coords <-nodes_igraph %>% select(lon, lat) %>% as.matrix()
+
+netStats <- list()
+```
+
+```{r network-descriptives, echo=FALSE}
+
+# EDGE DENSITY
+# The density of a graph is the ratio of the number of edges and the number of possible edges
+
+netStats$edge_density <- edge_density(net, loops=F)
+
+# RECIPROCITY 
+# The measure of reciprocity defines the proportion of mutual connections, 
+# in a directed graph. It is most commonly defined as the probability that 
+# the opposite counterpart of a directed edge is also included in the graph.
+netStats$edge_density <- reciprocity(net)
+
+# DEGREE: 
+#most basic structural property, the number of its adjacent edges.
+netStats$degree <- degree(net, mode="in")
+
+# CENTRALIZATION SCORE
+netStats$centrality <- centr_degree(net, mode="in", normalized=T)
+
+# AVERAGE PATH-LENGTH
+netStats$mean_distance <- mean_distance(net, directed=F)
+netStats$distances  <- distances(net, weights = NA) # with edge weights
+
+# COMMUNITY DETECTION
+netStats$ceb <- cluster_edge_betweenness(net) 
+
+# TRANSITIVITY
+# #ratio of triangles (direction disregarded) to connected triples
+netStats$ceb <- transitivity(net, type="global") 
+
+# DIAMETER
+#A network diameter is the longest geodesic distance (length of the shortest path between two nodes) in the network.
+
+diameter(net, directed=F, weights=NA)
+
+
+```
+
+# Network Analysis Measures
+
+
+
+diameter(net, directed=F, weights=NA)
+
+g <- make_ring(10) + make_full_graph(5)
+coords <- layout_(g, as_star())
+plot(net, layout = net_coords)
+
+```
+
+
+
+
+
+
+
+
+You can also embed plots, for example:
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

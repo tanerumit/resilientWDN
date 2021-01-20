@@ -1,0 +1,21 @@
+node_id	type	weight	demand	elevation	max_supply_head
+1	demand	1	0.1	0.0	
+2	none	1	0	0.0	
+3	none	1	0	0.0	
+4	demand	1	0.1	0.0	
+5	demand	1	0.1	0.0	
+6	supply	1	0.1	0.0	10000.0
+7	none	1	0	0.0	
+8	none	1	0	0.0	
+9	none	1	0	0.0	
+10	demand	1	0.1	0.0	
+11	none	1	0	0.0	
+12	supply	1	0.1	0.0	10000.0
+13	demand	1	0.1	0.0	
+14	none	1	0	0.0	
+15	none	1	0	0.0	
+16	supply	1	0.1	0.0	10000.0
+17	none	1	0	0.0	
+18	supply	1	0.1	0.0	10000.0
+19	none	1	0	0.0	
+20	demand	1	0.1	0.0	

@@ -1,0 +1,29 @@
+Total Cost (euros): 9510.17306 
+
+Tilbury_to_Manchester = 100 cost: 832.46309 
+Tilbury_to_Tilbury = 0 cost: 0 
+Tilbury_to_Paris = 0 cost: 0 
+Tilbury_to_Madrid = 0 cost: 0 
+Tilbury_to_Munich = 0 cost: 0 
+Tilbury_to_Reykjavik = 0 cost: 0 
+Tilbury_to_Sofia = 0 cost: 0 
+Tilbury_to_Frankfurt = 0 cost: 0 
+Tilbury_to_Prague = 0 cost: 0 
+Florence_to_Manchester = 100 cost: 4463.07031 
+Florence_to_Tilbury = 0 cost: 0 
+Florence_to_Paris = 0 cost: 0 
+Florence_to_Madrid = 0 cost: 0 
+Florence_to_Munich = 0 cost: 0 
+Florence_to_Reykjavik = 0 cost: 0 
+Florence_to_Sofia = 0 cost: 0 
+Florence_to_Frankfurt = 0 cost: 0 
+Florence_to_Prague = 0 cost: 0 
+Barcelona_to_Manchester = 100 cost: 4214.63966 
+Barcelona_to_Tilbury = 0 cost: 0 
+Barcelona_to_Paris = 0 cost: 0 
+Barcelona_to_Madrid = 0 cost: 0 
+Barcelona_to_Munich = 0 cost: 0 
+Barcelona_to_Reykjavik = 0 cost: 0 
+Barcelona_to_Sofia = 0 cost: 0 
+Barcelona_to_Frankfurt = 0 cost: 0 
+Barcelona_to_Prague = 0 cost: 0 
