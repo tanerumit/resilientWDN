@@ -1,0 +1,99 @@
+---
+title: "Water Distribution Network - Multidimensional Vulnerability analysis"
+author: "Deltares"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    self_contained: true
+---
+
+```{r setup, echo = FALSE}
+#General chunk settings
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+  fig.align = "left", cache = FALSE)
+```
+
+```{r data-prep}
+
+#PACKAGES REQUIRED
+library(parcoords)
+library(dplyr)
+library(readr)
+library(ggsci)
+
+df <- read_csv("sample_df.csv") %>%
+  select(-id) %>%
+  mutate(dev_rate = dev_rate * 100, pop_rate = pop_rate * 100, 
+         qdecline_rate = qdecline_rate * 100)
+
+
+ytitles <- c("Development [%/yr]", "Warming [Deg/yr]", "Price [%/yr]", 
+             "Pop [%/yr]", "WQ decline [%/yr]", "Year",
+             "Coverage [%]")
+
+ynames <- colnames(df)
+ytickValues  <- lapply(1:ncol(df), function(x) pretty(c(0, df[[x]])))
+ytickValues  <- lapply(1:ncol(df), function(x) pretty(range(df[[x]]), n = 5, min.n = 4))
+dims <- rep(list(list()), length(ynames))
+dims <- lapply(1:length(ynames), function(x) {dims[[x]] <- list(title = ytitles[[x]], tickValues = ytickValues[[x]])})
+dims <- setNames(dims, ynames)
+
+```
+
+
+
+```{r parcoords-coverage, fig.width = 12, fig.asp = .55}
+
+df1 <- df %>% mutate(year_sim = as.factor(year_sim)) 
+
+colnames(df1) <- ytitles
+
+#PLOT PARALLEL COORDINATES
+pc <- parcoords::parcoords(
+    data     = df1,
+    rownames = FALSE,
+      color = list(
+    # discrete or categorical column
+    colorScale = "scaleSequential",
+    colorBy = "Coverage [%]",
+    colorScheme = "interpolateMagma"
+    ),
+    brushMode = "1d",
+    brushPredicate = "and",
+    alphaOnBrushed = 0.1,
+    reorderable = TRUE,
+    axisDots = TRUE,
+    bundleDimension = NULL,
+    bundlingStrength = 0,
+    composite = "mode",
+    withD3 = TRUE,
+    width = NULL,
+    height = NULL,
+    margin = list(top = 20, left = 20, bottom = 20, right = 20),
+    dimensions = list(
+        Year = list(
+          title = "Year",
+          tickValues = as.integer(unique(df$year_sim))
+        )
+    )
+)
+
+htmltools::tagList(
+  htmltools::tags$script(
+"
+function snapshotPC() {
+  var pc = HTMLWidgets.find('#parcoords-snapshot-example').instance.parcoords;
+  pc.snapshot();
+}
+"    
+  ),
+  htmltools::tags$button(
+    "snapshot",
+    onclick = "snapshotPC()"
+  ),
+  pc
+)
+
+```
+
