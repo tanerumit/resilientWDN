@@ -1,24 +1,13 @@
-# 
 
 
-# nodes.data = nodes_out 
-# pipes.data = pipes_out 
-# node.color.var = "coverage"
-# node.size.var = "discharge"
-# edge.color.var = "dummy"
-# edge.size.var = NULL
-# background.map = mapFriesland
-# scale = FALSE
-# fill = FALSE
-
-
-#' Title
+#' Visualize Water Distribution Network Simulation Results
 #'
 #' @param nodes.data 
 #' @param pipes.data 
-#' @param node.color.var 
+#' @param node.fill.var 
 #' @param node.size.var 
 #' @param edge.color.var 
+#' @param edge.color.threshold 
 #' @param edge.size.var 
 #' @param background.map 
 #'
@@ -28,12 +17,12 @@
 #' @examples
 visualizeWDN <- function(nodes.data = NULL,
                          pipes.data = NULL,
-                         node.color.var = NULL,
+                         node.fill.var = NULL,
                          node.size.var = NULL,
                          edge.color.var = NULL,
+                         edge.color.threshold = 95,
                          edge.size.var = NULL,
-                         background.map = NULL,
-                         ...)
+                         background.map = NULL)
   
 {
   
@@ -41,127 +30,146 @@ visualizeWDN <- function(nodes.data = NULL,
   require(ggplot2)
   require(ggmap)
   require(ggnetwork)
+  require(ggnewscale)
   require(magrittr)
+  require(scales)
   
-  # General parameters
-  snode_color <- "gray90"
-  snode_size <- 6
   
-  dnode_color <- "blue"
-  dnode_size <- 8
-  
-  edge_color <- "gray20"
-  edge_size <- 1
+  # Set ggplot2 theme
+  ggtheme_network <- theme_light() + 
+    theme(legend.background = element_rect(fill = "white"),
+          legend.key=element_blank(),
+          legend.key.size = unit(0.6, "cm"))
 
+  # Supply node aesthetics
+  snode_color <- "blue"
+  snode_fill <- "#c6dbef"
+  snode_size <- 8
+  snode_shape <- 22
+  snode_stroke <- 1.2
   
+  # Demand node aesthetics
+  dnode_color <- "gray50"
+  dnode_fill <- "gray50"
+  dnode_size <- 8
+  dnode_shape <- 21
+  dnode_stroke <- 1
+  
+  
+  # Edge/link aeasthetics
+  edge_size <- 1
+  edge_color <- c("0" = "red", "1" = "black", "2" = "green")
+
   # Axis labels
   xlab <- expression("Lon "(degree))
   ylab <- expression("Lat "(degree))
+
+  # Prepare node/pipe tables
+  nodesDF <- nodes.data
+  pipesDF <- pipes.data %>%
+    left_join(y = (nodesDF %>% select(start = id, lon, lat)), by = "start") %>%
+    left_join(y = (nodesDF %>% select(end = id, lon_end = lon, lat_end = lat)), by = "end") %>%
+    mutate(lon_mid = (lon + lon_end)/2, 
+           lat_mid = (lat + lat_end)/2)
   
-  #nodes.data = nodes_out
-  #node.color.var = "coverage"
-  #node.color.var = NULL
-  
-  # Prepare pipe table
-  pipes.data %<>%
-    left_join(y = (nodes.data %>% select(start = id, lon, lat)), by = "start") %>%
-    left_join(y = (nodes.data %>% select(
-      end = id,
-      lon_end = lon,
-      lat_end = lat
-    )), by = "end")
-  
-  if(is.null(node.color.var)) {
-    nodes.data$nodecol <- dnode_color
+
+  if(is.null(node.fill.var)) {
+    nodesDF$nodefill <- dnode_fill
   } else {
-    nodes.data$nodecol <- nodes.data[[node.color.var]]
+    nodesDF$nodefill <- nodesDF[[node.fill.var]]
   }
   
   if(is.null(node.size.var)) {
-    nodes.data$nodesize <- dnode_size
+    nodesDF$nodesize <- dnode_size
   } else {
-    nodes.data$nodesize <- nodes.data[[node.size.var]]
+    nodesDF$nodesize <- nodesDF[[node.size.var]]
   }
   
   if(is.null(edge.color.var)) {
-    pipes.data$edgecol <- edge_color
+    pipesDF$edgecol <- 0
   } else {
-    pipes.data$edgecol <- pipes.data[[edge.color.var]]
+    pipesDF$edgecol <- ifelse(pipesDF[[edge.color.var]] > edge.color.threshold, "0", "1")
   }
+  
+  pipesDF$edgecol <- ifelse(pipesDF[["disuse"]] > 0, "2", pipesDF$edgecol)
   
   if(is.null(edge.size.var)) {
-    pipes.data$edgesize <- edge_size
+    pipesDF$edgesize <- edge_size
   } else {
-    pipes.data$edgesize <- pipes.data[[edge.size.var]]
+    pipesDF$edgesize <- pipesDF[[edge.size.var]]
   }
   
-  wbreaks <- filter(nodes.data, type == "demand") %>% pull(discharge) %>% pretty(5)
-  
-  
-  # Base layer & background MAP
-  if (!is.null(background.map)) {
-    p <- ggmap(background.map, extend = "device")
-  } else {
-    p <- ggplot()
-  }
-  
+  edge_size_breaks <- c(100,300,500,700) #pipesDF %>% pull(diameter) %>% pretty(3)
+  dnode_size_breaks <- nodesDF %>% filter(type == "demand") %>% pull(discharge) %>% pretty(5)
+
+  nodesDF$nodefill[1] <- 100
+  ##############################################################################
   
   # Main plot elements
-  p <- p  + ggtheme_nw +
-    
+  p <- ggmap(background.map, extend = "device")  + 
+    ggtheme_network + 
+
     # Draw pipe network
     geom_edges(
-      aes_string(x = "lon", y = "lat", xend = "lon_end", yend = "lat_end", 
-                 size = "edgesize", color = "edgecol"),
-      data = pipes.data,
-      size = edge_size,
-    ) +
+        aes_string(x = "lon", y = "lat", xend = "lon_end", yend = "lat_end", color = "edgecol", size = "edgesize"),
+        data = pipesDF) +
+    scale_size(limits = range(edge_size_breaks), breaks = edge_size_breaks, range = c(0.6, 4), 
+                guide = guide_legend(order = 3, title = "Pipe Diameter [mm]")) +
+    scale_color_manual(values = edge_color, labels = c(" < 95", " >= 95", "NotInUse"),
+                        guide = guide_legend(order = 4, title = "Pipe Use [%]",
+                                             override.aes = list(size = 3))) +
+    new_scale("size") +
     
-    # Draw demand/supply nodes
+    # Draw supply nodes
     geom_nodes(
       mapping = aes_string(x = "lon", y = "lat"),
-      data = filter(nodes.data, type == "supply"),
-      fill = snode_color,
-      size = snode_size,
-      stroke = 1,
-      shape = 22,
-      color = "gray30"
-    ) +
-
+      data = filter(nodesDF, type == "supply"),
+      fill = snode_fill, size = snode_size, stroke = snode_stroke,
+      shape = snode_shape, color = snode_color) +
+    
+    # Draw demand nodes
     geom_nodes(
-      aes_string(x = "lon", y = "lat", fill = "nodecol", size = "nodesize"),
-      data = filter(nodes.data, type == "demand"),
-      stroke = 1,
-      shape = 21,
-      color = edge_color
-    ) +
+        aes_string(x = "lon", y = "lat", fill = "nodefill", size = "nodesize"),
+        data = filter(nodesDF, type == "demand"),
+        stroke = dnode_stroke, shape = dnode_shape, color = dnode_color) + 
     
-    # Set scales (size/color)
-    scale_size(
-      limits = range(wbreaks),
-      breaks = wbreaks,
-      range = c(6, 12)
-    ) +
+    scale_fill_steps2(low = "red", mid = "white", high = "white", midpoint = 99, 
+                      limits = c(0,100),
+                      breaks = c(0,20, 40, 60, 80, 99, 100),
+                      labels = c(0, 20, 40, 60, 80,"", 100),
+                         guide = guide_colorbar(order = 1, title = "Reliability [%]", 
+                                                frame.color = "black", barheight = unit(4, 'cm'))) +
+
+    scale_size(limits = range(dnode_size_breaks), breaks = dnode_size_breaks, range = c(5,12), 
+        guide = guide_legend(order = 2, title = "Demand [m3]")) +
+
+    # Node labeling
+    geom_text(aes(x = lon, y = lat, label = label), data = nodesDF, size=3.5) +
     
+    # Set axis/guide labels
+    labs(x = NULL, y = NULL)
+
+  if(nrow(nodesDF %>% filter(disuse == 1)) > 0) {
     
-    # Set guides/labels
-    geom_text(aes(x = lon, y = lat, label = label), data = nodes.data) +
-    labs(
-      x = xlab,
-      y = ylab,
-      fill = "",
-      size = ""
-    ) 
+    p <- p + 
+
+      geom_label(aes(x = lon, y = lat, label = "X"), 
+                        size = 5, alpha = 0.5, color = "white", fill = "green",
+                        data = nodesDF %>% filter(disuse == 1))
+  }
   
-    if(!is.null(node.color.var)) {
-      p <- p + scale_fill_distiller(palette = "YlGnBu") 
-    }
   
-    if(!is.null(edge.color.var)) {
-      p <- p + scale_color_brewer(palette = "Dark2") 
-    }
+  if(nrow(pipesDF %>% filter(disuse == 1)) > 0) {
+    
+    p <- p + 
+      
+      geom_label(aes(x = lon_mid, y = lat_mid, label = "X"), 
+                        size = 3, alpha = 0.5, color = "white", fill = "green",
+                        data = pipesDF %>% filter(disuse == 1))
+  }
   
-    return(p + guides(...))
+
+  return(p)
   
   
   

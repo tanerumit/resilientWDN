@@ -1,88 +1,118 @@
 
+### Experiment 
+design_set <- 3 #1:5
+supply_set <- c(0, snodes)
+scn_tbl <- expandGrid(design = design_set, supplyF = supply_set) %>%
+  mutate(Rel = NA)  %>%
+  arrange(design)
+scn_num <- nrow(scn_tbl)
 
-######################### MODEL DATA ###########################################
-
-
-# Load scripts & functions
-source("./src/setup.R")
-
-# Directories to read-in data and save results
-inPath  <- "./data/v8_2021/"
-outPath <- "./results/v8_2021/"
-
-# Read_in node and pipe schematic from csv files: 
-designNumMax <- 5
-designNum <- 3
-nodes_data <- read.csv(paste0(inPath,"nodes.csv"))
-nodes_meta <- read.csv(paste0(inPath,"nodes_meta.csv"))
-pipes_all <- lapply(1:designNumMax, function(x) read.csv(paste0(inPath,"pipes_d", x, ".csv")))
-pipes_data <- pipes_all[[designNum]]
-
-
-# Background map
-load(file = paste0(inPath, "mapFriesland.rda"))
-
-nodes_base <- nodes_data 
-pipes_base <- pipes_data
-
-####################### GRAPH ANALYSIS #########################################
-
-
-# Run combined model 
-out <- simulateWDN(
-  edev.change = 0.0005,   
-  tdev.change = 0.01,
-  temp.change = 0.04,       
-  price.change = 0.01,        
-  pop.change  = 0.01, 
-  dnetwork.change = 0.01,
-  wqual.change = 0.005,
-  edev.elasticity = 1.0,       
-  price.elasticity = -0.2,      
-  temp.elasticity = 0.03,     
-  industry.ratio = 0.3,
-  dom.peak.factor = 1,
-  ind.peak.factor = 1,
-  year.sim = 2031,       
-  year.ref = 2021,        
-  nodes.data = nodes_base,       
-  pipes.data = pipes_base
-)
+pb <- txtProgressBar(min = 1, max = scn_num, style = 3)
+start_time <- Sys.time()
+for (i in 1:nrow(scn_tbl)) {
   
-# Performance metrics per node
-nodes_out <- out$nodes %>% as_tibble() %>%
+  # progress bar
+  setTxtProgressBar(pb, i)
+  
+  fsupply <- scn_tbl$supplyF[i]
+  des <- scn_tbl$design[i]
+  
+  nodes_base <- nodes_data
+  snodes <- nodes_base$id[which(nodes_base$type == "supply")]
+  
+  nodes_base$disuse[which(nodes_base$id %in% fsupply)] <- 1
+  nodes_base$discharge[snodes] <- nodes_base$discharge[snodes] * 1.1  #1.50
+  
+  pipes_base <- pipes_all[[des]] 
+  pipes_base$q_max <- pipes_base$q_max  
+  
+  # Run combined model 
+  out <- simulateWDN(
+    edev.change = 0.0005,   
+    tdev.change = 0.01,
+    temp.change = 0.04,       
+    price.change = 0.01,        
+    pop.change  = 0.01, 
+    dnetwork.change = 0.01,
+    wqual.change = 0.005,
+    edev.elasticity = 1.0,       
+    price.elasticity = -0.2,      
+    temp.elasticity = 0.03,     
+    dom.peak.factor = 1,
+    ind.peak.factor = 1,
+    year.sim = 2021,       
+    year.ref = 2021,        
+    nodes.data = nodes_base,       
+    pipes.data = pipes_base
+  )
+  
+  # global_results
+  resultSum <- tibble(name = c("Demand", "Supply", "PipeUse", "Performance"))
+  resultSum$ini <- NA
+  resultSum$sim <- NA
+  
+  resultSum$ini[1] <- out$nodes %>% filter(type == "demand") %>% pull(discharge) %>% sum()
+  resultSum$sim[1] <- out$nodes %>% filter(type == "demand") %>% pull(sim) %>% sum()
+  resultSum$ini[2] <- out$nodes %>% filter(type == "supply") %>% pull(discharge) %>% sum()
+  resultSum$sim[2] <- out$nodes %>% filter(type == "supply") %>% pull(sim) %>% sum() %>% abs()
+  resultSum$ini[3] <- out$pipes %>% pull(q_max) %>% sum()
+  resultSum$sim[3] <- out$pipes %>% pull(sim) %>% sum()
+  resultSum$sim[4] <- resultSum$sim[1]/resultSum$ini[1] * 100
+  
+  scn_tbl$Rel[i] <- resultSum$sim[4]
+  
+}
+close(pb)
+Sys.time() - start_time
+
+scn_tbl %>%
+  left_join(select(nodes_data, id, label), by = c("supplyF" = "id")) %>%
+  arrange(label)
+
+
+group_by(design) %>%
+  summarize(min = min(Rel), max = max(Rel), mean=mean(Rel)) %>%
+  
+  
+  
+  # Network vizualization
+  
+  # Performance metrics per node
+  nodes_out <- out$nodes %>% as_tibble() %>%
   mutate(discharge = round(discharge, 2),
          sim = ifelse(type == "supply", round(sim, 2)*-1, round(sim, 2)),
-         coverage = round(100 * sim/discharge,2),
-         deficit = round(discharge - sim, 2)) %>% 
-  select(id, label, type, weight, discharge, sim, coverage, deficit) %>%
+         rel = round(100 * sim/discharge,0)) %>% 
+  select(-elevation, -use_pump_curve,-max_supply_head) %>%
   left_join(select(nodes_meta,id,lat,lon), by="id")
 
 pipes_out <- out$pipes %>% as_tibble() %>%
-  mutate(coverage = round(100 * abs(sim)/q_max,2)) 
+  select(-flowdir, -has_booster, -booster_hmax) %>%
+  mutate(coverage = round(100 * abs(sim)/q_max,0)) 
 
-# Network vizualization
-
-gc()
 
 p <- visualizeWDN(
   nodes.data = nodes_out, 
   pipes.data = pipes_out, 
-  node.color.var = "coverage",
-  node.size.var = "discharge",
+  node.color.var = "rel",
+  node.size.var = NULL,
   edge.color.var = NULL,
   edge.size.var = NULL,
   background.map = mapFriesland,
-  scale = FALSE, 
-  fill = FALSE,
   size = FALSE,
-  shape = FALSE,
-  color = FALSE
-  ); p
-
+  color = FALSE,
+  fill = FALSE); p
+p
 
 ggsave(filename = paste0(outPath, "wdnviz.png"), height = 10, width = 12)
 
+
+
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
 ################################################################################
 ################################################################################
 
@@ -148,7 +178,7 @@ sample_set <- tibble(id = 1:sample_num) %>%
 
 sample_df <- expandGridDf(sample_set, year_df) %>% mutate(metric = NA)
 dnodes <- nodes_data$node_id[which(nodes_data$type == "demand")]
-  
+
 
 scn_num <- nrow(sample_df)
 
@@ -160,7 +190,7 @@ for (i in 1:scn_num) {
   
   # progress bar
   setTxtProgressBar(pb, i)
-
+  
   # Run combined model 
   result <- simulateWDN(
     dev_rate = sample_df$dev_rate[i],         
@@ -174,7 +204,7 @@ for (i in 1:scn_num) {
   )
   
   sample_df$metric[i] <- round(sum(result$final[dnodes])/sum(result$initial[dnodes])*100,0)
-    
+  
   
 }
 close(pb)
@@ -204,7 +234,7 @@ for (i in 1:designNumMax) {
   # Generate network
   nodes_df <- nodes_data
   pipes_df <- pipes_all[[i]] 
-
+  
   # Number of nodes & links
   nodeNum <- nrow(nodes_df)
   pipeNum <- nrow(pipes_df)
@@ -212,7 +242,7 @@ for (i in 1:designNumMax) {
   dnodes <- nodes_base$id[which(nodes_base$type == "demand")]
   snodes <- nodes_base$id[which(nodes_base$type == "supply")] 
   snodes_labels <- nodes_base$label[snodes]
-
+  
   
   # Define network as undirected
   G <- graph_from_data_frame(d=pipes_df, vertices=nodes_df, directed = FALSE) 
@@ -223,7 +253,7 @@ for (i in 1:designNumMax) {
     foo[d,] <- sapply(snodes, function(x) edge_connectivity(G, source = dnodes[d], target = x))
   }
   edgeCon[[i]] <- tibble(id = dnodes) %>% bind_cols(as_tibble(foo)) %>% setNames(c("id", snodes_labels))
-
+  
   
   # ~~~~~~~~~~~~~~~~~~~~~~~~~ Bridges in the network 
   
@@ -255,7 +285,7 @@ for (i in 1:designNumMax) {
   #   geom_edges(aes(x=x, y=y, xend=xend, yend=yend, color = colid), 
   #              data = pipes_df)
   
-
+  
 }
 
 df <- data.frame(matrix(unlist(nMetrics), nrow=length(metricNames), byrow=F), 
@@ -264,7 +294,6 @@ df <- data.frame(matrix(unlist(nMetrics), nrow=length(metricNames), byrow=F),
 colnames(df) <- designNames
 df <- df %>% mutate_all(.funs = round, 2) %>% 
   tibble::add_column(metric = metricNames,.before = 1) 
-
 
 
 

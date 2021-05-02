@@ -10,9 +10,14 @@ library(networktools)
 require(ggplot2)
 require(ggmap) 
 require(ggnetwork)
+require(ggpmisc)
+require(ggnewscale)
+
+# Data load/transfer
+library(readr) 
+library(readxl)
 
 # Data analysis
-library(readr) 
 library(lubridate) 
 library(dplyr) 
 library(tidyr) 
@@ -35,18 +40,6 @@ reticulate::source_python("./src/functions/calculate_network2.py")
 
 
 ############# Functions & Other settings ---------------------------------------
-
-source("./src/functions/simulateWDN.R")
-
-source("./src/functions/visualizeWDN.R")
-
-# Set ggplot2 theme
-ggtheme_nw <- theme_light() + 
-  theme(legend.background = element_rect(fill = "white")) + # element_blank()) +
-  theme(legend.key=element_blank()) #+
-  #theme(legend.position = c(0.085, 0.15)) 
-
-
 
 # Find paths from node index n to m using adjacency list a.
 adjlist_find_paths <- function(a, n, m, path = list()) {

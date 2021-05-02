@@ -1,5 +1,5 @@
 
-source("./R/00 initialize.R")
+
 
 # Demand/Supply value estimation  ##############################################
 
@@ -7,6 +7,7 @@ source("./R/00 initialize.R")
 subareas_dat  <- read_csv("./data/v2/subareas_friesland.csv")
 
 # Water consumption data per consumer in Friesland (from Vitens)
+# Original data in m3/year
 consumers_dat <- read_csv("./data/v2/consumers_friesland.csv")
 
 cmy2cmh <- 1/(365*24)
@@ -20,6 +21,12 @@ consumers <- consumers_dat %>%
   select(1, 2, name = 3) 
 consumers[39,1] <- "FRL-05-03"
 consumers[39,3] <- "Holwerd"
+
+# Total demand = 43374231 m3/year (43.4 mM3/year)
+
+# Total demand (m3/s)
+43374231/365/86400
+
 
 # Initial node table for Friesland
 friesland_nodes <- read.csv("./data/v3/calculations/network3_nodes_ini2.csv") 
@@ -51,6 +58,52 @@ write_csv(friesland_nodes, "./data/v3/network3_nodes.csv")
 
 
 ################################################################################
+
+nodes_test <- read_csv("./data/viten_supply_20210419.csv") 
+
+nodes_test$connected[37] <- 44
+nodes_test$connected[33] <- 44
+
+nodes_test$connected[32] <- 44
+
+nodes_test$connected[15] <- 41
+nodes_test$connected[16] <- 41
+nodes_test$connected[17] <- 41
+nodes_test$connected[18] <- 41
+
+
+nodes_test %>%
+  filter(type == "demand") %>%
+  group_by(connected) %>%
+  summarize(discharge = sum(discharge)) %>%
+  mutate(rel = discharge/sum(discharge)*100)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################################################################
+
+
 
 # Pipe Calculations ############################################################
 
@@ -135,8 +188,8 @@ Vitens_df2 <- vitens_df %>%
 write_csv(Vitens_df2, "./data/v2/production_sites_v2.csv")
 
 
-#register_google(key = "AIzaSyDSykq5fNI-H89WdwRINMjDrcq5lbK0vk8")
-#s <- "element:geometry%7Ccolor:0xf5f5f5&style=element:labels%7Cvisibility:off&style=element:labels.icon%7Cvisibility:off&style=element:labels.text.fill%7Ccolor:0x616161&style=element:labels.text.stroke%7Ccolor:0xf5f5f5&style=feature:administrative%7Celement:geometry%7Cvisibility:off&style=feature:administrative.country%7Celement:geometry.stroke%7Ccolor:0x000000%7Cvisibility:on&style=feature:administrative.land_parcel%7Cvisibility:off&style=feature:administrative.land_parcel%7Celement:labels.text.fill%7Ccolor:0xbdbdbd&style=feature:administrative.neighborhood%7Cvisibility:off&style=feature:poi%7Cvisibility:off&style=feature:poi%7Celement:geometry%7Ccolor:0xeeeeee&style=feature:poi%7Celement:labels.text.fill%7Ccolor:0x757575&style=feature:poi.park%7Celement:geometry%7Ccolor:0xe5e5e5&style=feature:poi.park%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&style=feature:road%7Cvisibility:off&style=feature:road%7Celement:geometry%7Ccolor:0xffffff&style=feature:road%7Celement:labels.icon%7Cvisibility:off&style=feature:road.arterial%7Celement:labels.text.fill%7Ccolor:0x757575&style=feature:road.highway%7Celement:geometry%7Ccolor:0xdadada&style=feature:road.highway%7Celement:labels.text.fill%7Ccolor:0x616161&style=feature:road.local%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&style=feature:transit%7Cvisibility:off&style=feature:transit.line%7Celement:geometry%7Ccolor:0xe5e5e5&style=feature:transit.station%7Celement:geometry%7Ccolor:0xeeeeee&style=feature:water%7Celement:geometry%7Ccolor:0xc9c9c9&style=feature:water%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&size=480x360"
+register_google(key = "AIzaSyDSykq5fNI-H89WdwRINMjDrcq5lbK0vk8")
+s <- "element:geometry%7Ccolor:0xf5f5f5&style=element:labels%7Cvisibility:off&style=element:labels.icon%7Cvisibility:off&style=element:labels.text.fill%7Ccolor:0x616161&style=element:labels.text.stroke%7Ccolor:0xf5f5f5&style=feature:administrative%7Celement:geometry%7Cvisibility:off&style=feature:administrative.country%7Celement:geometry.stroke%7Ccolor:0x000000%7Cvisibility:on&style=feature:administrative.land_parcel%7Cvisibility:off&style=feature:administrative.land_parcel%7Celement:labels.text.fill%7Ccolor:0xbdbdbd&style=feature:administrative.neighborhood%7Cvisibility:off&style=feature:poi%7Cvisibility:off&style=feature:poi%7Celement:geometry%7Ccolor:0xeeeeee&style=feature:poi%7Celement:labels.text.fill%7Ccolor:0x757575&style=feature:poi.park%7Celement:geometry%7Ccolor:0xe5e5e5&style=feature:poi.park%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&style=feature:road%7Cvisibility:off&style=feature:road%7Celement:geometry%7Ccolor:0xffffff&style=feature:road%7Celement:labels.icon%7Cvisibility:off&style=feature:road.arterial%7Celement:labels.text.fill%7Ccolor:0x757575&style=feature:road.highway%7Celement:geometry%7Ccolor:0xdadada&style=feature:road.highway%7Celement:labels.text.fill%7Ccolor:0x616161&style=feature:road.local%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&style=feature:transit%7Cvisibility:off&style=feature:transit.line%7Celement:geometry%7Ccolor:0xe5e5e5&style=feature:transit.station%7Celement:geometry%7Ccolor:0xeeeeee&style=feature:water%7Celement:geometry%7Ccolor:0xc9c9c9&style=feature:water%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&size=480x360"
 #mapFriesland <- get_googlemap(c(5.7, 53.2), zoom = 9, style = s)
 #save(mapFriesland, file="./data/mapFriesland.rda")
 
@@ -145,17 +198,38 @@ write_csv(Vitens_df2, "./data/v2/production_sites_v2.csv")
 
 #### Background map ############################################################
 
+register_google(key = "AIzaSyBnxH4SSNB_bPOFTIcVzhV8f9195hYchf8")
+
+mapFriesland <- get_googlemap(c(5.7, 53.2), zoom = 9, style = s)
+save(mapFriesland, file="./data/friesland_map.rda")
+
+ggmap(mapFriesland)
+
+lons <-c(4.90,6.40)
+lats <-c(52.70,53.60)
+bb<-make_bbox(lon=lons,lat=lats,f=0.05)
+
+cda<-get_map(bb, maptype = "toner")
+ggmap(cda)
+
+map <- get_googlemap(c(-97.14667, 31.5493))
+ggmap(map)
+
+map <- get_googlemap(c(10, 51), zoom = 6, scale = 1, style = s)
+ggmap(map)
+
+
 ggmap(myMap)
 
 mapFriesland <- get_stamenmap(bbox = c(left = 4.90,
                                        bottom = 52.70,
                                        right = 6.40,
                                        top = 53.60),
-                              maptype = "terrain-background",
+                              maptype = "toner-lite",
                               color = "bw",
                               crop = TRUE,
                               force = TRUE)
-
+ggmap(mapFriesland)
 
 save(mapFriesland, file = "./data/v8_2021/mapFriesland.rda")
 
