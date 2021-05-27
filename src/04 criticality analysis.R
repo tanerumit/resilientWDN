@@ -1,141 +1,229 @@
 
 
 
-#:::::::::::::::::::: MODEL SETUP ::::::::::::::::::::::::::::::::::::::::::::::
+################################################################################
+#::::::::::::::::::: GENERAL SETUP :::::::::::::::::::::::::::::::::::::::::::::
+################################################################################
+
 
 # Load scripts & functions
 source("./src/setup.R")
 source("./src/functions/simulateWDN.R")
 source("./src/functions/visualizeWDN.R")
 
+# Key settings
+rel_threshold <- 100
+
 # Directories to read-in data and save results
 inPath  <- "./data/v9/"
-outPath <- "./results/v9/"
+outPath <- "./results/0527/"
 
 # Background map
 load(file = paste0(inPath, "mapFriesland.rda"))
 
-# Read_in base network from excel 
-nodes_data_base <- read_excel(paste0(inPath,"nodes_d1.xlsx"))
-pipes_data_base <- read_excel(paste0(inPath,"pipes_d1.xlsx"))
+################################################################################
 
-# Store all options in list
+# DEFINE PORTFOLIOS ------------------------------------------------------------
+
+# Read_in node and pipe table from excel. These tables need to include all 
+# nodes and link (existing + new) accross all portfolios
+nodes_info <- read_excel(paste0(inPath,"nodes_data.xlsx")) 
+pipes_info <- read_excel(paste0(inPath,"pipes_data.xlsx")) 
+
+# Calculate pipe lengths based on coordinates
+pipes_info$length <- sapply(1:nrow(pipes_info), function(x)
+  distm(c(nodes_info$lon[pipes_info$start[x]], 
+          nodes_info$lat[pipes_info$start[x]]), 
+        c(nodes_info$lon[pipes_info$end[x]], 
+          nodes_info$lat[pipes_info$end[x]]), 
+        fun = distGeo))
+
+# Store all portfolios
 nodes_data <- list()
 pipes_data <- list()
-nodes_data[[1]] <- nodes_data_base
-pipes_data[[1]] <- pipes_data_base
+
+# Indices of existing nodes and pipes in the base design
+ex_nodes <- 1:48
+ex_pipes <- 1:52
+
+# Indices of new nodes/pipes in each design
+new_nodes <- list(d1=NULL, d2=c(49), d3=c(50), d4=c(51), d5=c(52), d6=NULL)
+new_pipes <- list(d1=NULL, d2=c(53,54,55), d3=c(56,57,58), d4=c(59,60,61), 
+                  d5=c(62,63,64,65), d6=c(66,67,68))
 
 
-### Define alternative designs  
+# Set portfolios
+nodes_data <- lapply(1:length(new_nodes), function(x) nodes_info %>% 
+                       filter(id %in% c(ex_nodes, new_nodes[[x]])))
 
-# Design 2: introduce s10 with capacity 750m3/yr
-nodes_data[[2]] <- nodes_data[[1]] %>%
-  add_row(id=49,	label='s10', lat=53.15, lon=5.75, name='new1', type='supply', 
-          weight=1, discharge=750, elevation=0, max_supply_head =	10000, 
-          disuse=0, use_pump_curve=0, ind_ratio=0)
-pipes_data[[2]] <- pipes_data[[1]] %>%
-  add_row(start=49, end=20, id=53, length=3000,diameter=700,disuse=0,q_max=1384.74, 
-          flowdir=0, has_booster=0, booster_hmax=0)
+pipes_data <- lapply(1:length(new_pipes), function(x) pipes_info %>% 
+                       filter(id %in% c(ex_pipes, new_pipes[[x]])))
 
-# Design 3: increase all other supply by 10%
-nodes_data[[3]] <- nodes_data[[1]] %>%
-  mutate(discharge = ifelse(type == "supply", discharge * 1.10, discharge))        
-pipes_data[[3]] <- pipes_data[[1]]
+# Set pipe labels
+pipes_data <- lapply(pipes_data, function(x) mutate(x, label=paste0(start,"_",end)))
 
-# Design 4: increase all other supply by 20%
-nodes_data[[4]] <- nodes_data[[1]] %>%
-  mutate(discharge = ifelse(type == "supply", discharge * 1.20, discharge))             
-pipes_data[[4]] <- pipes_data[[1]]
+#	Pipe costs: €1M/mm/km  
+pipe_unit_cost <- 1  
+pipe_cost_tbl <- pipes_info %>% select(start:diameter) %>%
+  mutate(cost = ifelse(id %in% ex_pipes, 0, diameter * length * pipe_unit_cost/10^6))
 
-dmax <- length(nodes_data)
+#	Production costs: €5 /m3
+supply_unit_cost <- 5 
+node_cost_tbl <- nodes_info %>% select(id:discharge) %>%
+  mutate(cost = ifelse(id %in% ex_nodes, 0, supply_unit_cost * discharge*24*365/10^6)) %>%
+  mutate(cost = ifelse(type == "demand", 0, cost))
+
+cap_cost_nodes <- sapply(new_nodes, function(x) sum(node_cost_tbl$cost[x]))
+cap_cost_pipes <- sapply(new_pipes, function(x) sum(pipe_cost_tbl$cost[x]))   
+total_costs <-  cap_cost_nodes + cap_cost_pipes
 
 
-#:::::::::::::::::::: Experimental Design ::::::::::::::::::::::::::::::::::::::
+################################################################################
+
+# DEFINE SCENARIO SPACE --------------------------------------------------------
 
 # Trend scenarios: demand increase  
 # Shock scenarios: supply site, network failure
 
-######### SHOCK SCENARIOS
+# ::::::::::::::::::::: STOCHASTIC FAILURE SCENARIOS :::::::::::::::::::::::::::
 
-# Supply Failure combinations
-supplyIDs <- nodes_data_base %>% filter(type == "supply") %>% arrange(label) %>% pull(id)
-supplyF_comb1 <- as.list(combn(supplyIDs,1))
-supplyF_comb2 <- combn(supplyIDs, 2)
-supplyF_comb2 <- lapply(1:ncol(supplyF_comb2), function(x) supplyF_comb2[, x])
-supplyF_combs <- c(supplyF_comb1,supplyF_comb2)
-supplyFn <- length(supplyF_combs)
+# Sample size for failure scenarios
+smax <- 100
 
-# Connection failure combinations
-pipeIDs <- pipes_data_base %>% pull(id)
-pipeF_comb1 <- as.list(combn(pipeIDs,1))
-pipeF_comb2 <- combn(pipeIDs, 2)
-pipeF_comb2 <- lapply(1:ncol(pipeF_comb2), function(x) pipeF_comb2[, x])
-pipeF_combs <- c(pipeF_comb1,pipeF_comb2)
-pipeFn <- length(pipeF_combs)
+# Set demand and supply node indices
+snodes <- nodes_data[[1]]$id[which(nodes_data[[1]]$type == "supply")]
+dnodes <- nodes_data[[1]]$id[which(nodes_data[[1]]$type == "demand")]
 
-scn_schockn <- supplyFn + pipeFn
-scn_shock_tbl <- tibble(sid=1:scn_schockn, supplyF = as.list(0), pipeF = as.list(0))
-scn_shock_tbl$supplyF[1:supplyFn] <- supplyF_combs
-scn_shock_tbl$pipeF[(supplyFn+1):(supplyFn+pipeFn)] <- pipeF_combs
+node_num <- nrow(nodes_data[[1]])
+pipe_num <- nrow(pipes_data[[1]])
 
-######### TREND SCENARIOS
-demandT <- seq(0.5, 0.75, 1, 1.25, 1.5)
-demandTn <- length(demandT)
-scn_Tn <- demandTn
-scn_Ttbl <- tibble(tid=1:scn_Tn, demandT = demandT)
+## Generate supply failures based on frequencies 
+node_failure_mat <- matrix(data =NA, nrow = smax, ncol = node_num)
+pipe_failure_mat <- matrix(data =NA, nrow = smax, ncol = pipe_num)
+
+# Sample node/pipe failures
+# Make sure each sample has at least one link or source failure 
+for (s in 1:smax) {
+  
+  failureT <- 0
+  
+  while(failureT < 1) {
+    
+    supply_failure <- sapply(1:node_num, function(x) 
+      rbinom(n=1, size=1, prob = nodes_data[[1]]$prFail[x]))
+    
+    pipe_failure <- sapply(1:pipe_num, function(x) 
+      rbinom(n=1, size=1, prob = pipes_data[[1]]$prFail[x]))
+    
+    failureT <- sum(supply_failure) + sum(pipe_failure)
+    
+  } 
+  
+  node_failure_mat[s, ] <- supply_failure
+  pipe_failure_mat[s, ] <- pipe_failure
+  
+  s = s + 1
+}
+
+# Failure scenarios
+snode_failures <- lapply(1:nrow(node_failure_mat), 
+                        function(x) which(node_failure_mat[x,]==1))
+pipe_failures   <- lapply(1:nrow(pipe_failure_mat), 
+                        function(x) which(pipe_failure_mat[x,]==1))
+
+scn_stochastic_mat <- tibble(stoc_id=1:smax, supplyF = snode_failures, 
+                        pipeF = pipe_failures)
+
+# ::::::::::::: TREND SCENARIOS ('NARRATIVES') :::::::::::::::::::::::::::::::::
+
+# Read-in trend scenarios from table
+scn_trends_data  <- read_excel(paste0(inPath,"ScenarioDev.xlsx"), sheet = 2) 
+scn_trends_info <- read_excel(paste0(inPath,"ScenarioDev.xlsx"), sheet = 3) 
+scn_trends_ini <- scn_trends_data %>% select(-id)  
+
+scn_select <- c(1,3,5)
+
+scn_trends <- scn_trends_ini[,scn_select]
+scn_trends_labels <- scn_trends_info$label[scn_select]
+trends_num  <- ncol(scn_trends)
+scn_trends_mat <- tibble(trend_id = 1:trends_num, 
+  demandM = lapply(1:trends_num, function(x) unlist(scn_trends[,x], use.names = F)))
 
 ######### COMBINED SCENARIOS
-scn_tbl <- expandGridDf(scn_shock_tbl, scn_Ttbl) %>%
-  add_column(id=NA, .before = "sid") %>%
-  mutate(id = 1:n()) %>%
-  mutate(demand = 0, available = 0, allocated = 0, reliability = 0, linkuse = 0) 
-num_scn <- nrow(scn_tbl)
+scn_mat <- expandGridDf(scn_stochastic_mat, scn_trends_mat) %>%
+  add_column(scn=NA, .before = "stoc_id") %>%
+  mutate(scn = 1:n()) 
+
+################################################################################
+
+#::::::::::::  RUN SCENARIOS :::::::::::::::::::::::::::::::::::::::::::::::::::
 
 #Loop through actions
-dmax <-1
-imax <- num_scn
-scnOut <- vector(mode = "list", length = num_scn) 
-pb <- txtProgressBar(min = 1, max = num_scn*dmax, style = 3)
+
+# desicision and scenario space
+diter <- 1:2
+siter <- scn_mat$scn
+
+dmax <- length(diter)
+smax <- length(siter)
+
+scnOut_all <- vector("list", length = dmax)
+names(scnOut_all) <- diter
+
+pb <- txtProgressBar(min = 1, max = smax*dmax, style = 3)
 start_time <- Sys.time()
+
+node_id0  <-  nodes_data[[1]]$id
+snode_id0 <- nodes_data[[1]]$id[which(nodes_data[[1]]$type == "supply")]
+dnode_id0 <- nodes_data[[1]]$id[which(nodes_data[[1]]$type == "demand")]
+pipe_id0  <- pipes_data[[1]]$id
+
 for (d in 1:dmax) {
   
+  # Current design
+  dX <- diter[d]
+    
+  # Define empty list to store all results
+  scnOut <- vector(mode = "list", length = smax) 
+  
   # Read-in network data for the current configuration (d)
-  nodes_d <- nodes_data[[d]]
-  pipes_d <- pipes_data[[d]]
+  nodes_d <- nodes_data[[dX]]
+  pipes_d <- pipes_data[[dX]]
   
-  # Set demand and supply node indices
-  snodes <- nodes_d$id[which(nodes_d$type == "supply")]
-  dnodes <- nodes_d$id[which(nodes_d$type == "demand")]
+  # Set demand and supply node indices for the current configuration
+  snode_id <- nodes_d$id[which(nodes_d$type == "supply")]
+  dnode_id <- nodes_d$id[which(nodes_d$type == "demand")]
   
-  # Set spare supply capacity
-  nodes_d$discharge[snodes] <- nodes_d$discharge[snodes] * 1.05
-
+  # Set spare supply capacity (base system nodes only)
+  ind1 <- which(nodes_d$id %in% snode_id0)
+  nodes_d$discharge[ind1] <- nodes_d$discharge[ind1]  * 1.05
+  
   #Loop through scenarios
-  for (i in 1:imax) {
+  for (s in 1:smax) {
+    
+    # Current scenario
+    sX <- siter[s]
     
     # progress bar
-    setTxtProgressBar(pb, i)
+    setTxtProgressBar(pb, s*d)
     
     #Reset node and link data
     nodes_scn <- nodes_d
     pipes_scn <- pipes_d
     
-    # set current scenario name
-    scnname <- paste0("scn",scn_tbl$id[i],"_opt",d)
+    # Set supply/link failures based on current scenario
+    supplyF_s <- unlist(scn_mat$supplyF[sX])
+    nodes_scn$disuse[which(nodes_scn$id %in% supplyF_s)] <- 1
     
-    # Set supply node failures based on current scenario
-    supplyF_i <- unlist(scn_tbl$supplyF[i])
-    nodes_scn$disuse[which(nodes_scn$id %in% supplyF_i)] <- 1
+    pipeF_s <- unlist(scn_mat$pipeF[sX])
+    pipes_scn$disuse[which(pipes_scn$id %in% pipeF_s)] <- 1
     
-    # Set pipe failures based on current scenario
-    pipeF_i   <- unlist(scn_tbl$pipeF[i])
-    pipes_scn$disuse[which(pipes_scn$id %in% pipeF_i)] <- 1
+    # Set trends for nodes
+    ind <- which(nodes_scn$id %in% node_id0)
+    nodes_scn$discharge[ind] <- nodes_scn$discharge[ind] * scn_mat$demandM[[sX]]
     
-    # Set Demand nodes based on current scenario
-    nodes_scn$discharge[dnodes] <- nodes_scn$discharge[dnodes] * scn_tbl$demandT[i]
-
     # Run simulation model
-    scnOut[[i]] <- simulateWDN(
+    scnOut[[s]] <- simulateWDN(
       edev.change = 0.0005,   
       tdev.change = 0.01,
       temp.change = 0.04,       
@@ -153,263 +241,248 @@ for (d in 1:dmax) {
       nodes.data = nodes_scn,       
       pipes.data = pipes_scn
     )
-    
-    #Save summary results
-    scn_tbl[[i,"demand"]] <- scnOut[[i]]$summary$value[1]
-    scn_tbl[[i,"available"]] <- scnOut[[i]]$summary$value[2]
-    scn_tbl[[i,"allocated"]] <- scnOut[[i]]$summary$value[3]
-    scn_tbl[[i,"reliability"]] <- scnOut[[i]]$summary$value[4]
-    scn_tbl[[i,"linkuse"]] <- scnOut[[i]]$summary$value[5]
-
   }
+  
+  scnOut_all[[d]] <- scnOut
   
 }
 Sys.time() - start_time
 close(pb)
 
-#7,000 scenario in 10 minutes
-write_rds(scnOut, paste0(outPath, format(Sys.time(), "%m%d"),"_scnOut.rds"), "xz", compression = 9L)
-write_rds(scn_tbl, paste0(outPath, format(Sys.time(), "%m%d"),"_scn_tbl.rds"), "xz", compression = 9L)
+#save(scnOut_all, scn_mat, file = "./results/test_runs_0525.rdata")
 
 
-#::::::::::::   Network vizualization ::::::::::::::::::::::::::::::::::::::::::
+################################################################################
 
-p <- visualizeWDN(
-  nodes.data = scnOut[[i]]$nodes,
-  pipes.data = scnOut[[i]]$pipes,
-  node.fill.var = "rel",
-  node.size.var = "discharge",
-  edge.color.var = "usage",
-  edge.size.var = "diameter",
-  background.map = mapFriesland)
+# PERFORMANCE METRICS ----------------------------------------------------------
 
-  #ggtitle(paste0("Scenario index: ",i, " - Design: ",d))
-
-df <- tibble(x = 0.02, y = 0.02, tb = list(scnOut[[i]]$summary))
-p <- p + geom_table_npc(data = df, aes(npcx=x, npcy=y, label = tb),
-                        size = 3, table.hjust = 0,
-                        table.theme = ttheme_gtstripes)
-
-
-ggsave(filename = paste0(outPath, scnname,".png"), height = 8, width = 11)
-
-
-
-#::::::::::::   Results Analysis :::::::::::::::::::::::::::::::::::::::::::::::
-
-
-scnOut <- read_rds(paste0(outPath, format(Sys.time(), "%m%d"),"_scnOut.rds"))
-
-scn_tbl <- read_rds(paste0(outPath, format(Sys.time(), "%m%d"),"_scn_tbl.rds")) %>%
-  mutate(demandT = factor(demandT, levels = seq(0.5,1.5,0.25), labels = seq(0.5,1.5,0.25) * 100 - 100))
-
-
-# Plot range of reliablity accross scenarios
-
-p <- ggplot(scn_tbl, aes(x = demandT, y = reliability)) +
-  theme_light() +
-  geom_point(alpha = 0.3) + geom_jitter() +
-  labs(x = "Demand Change (%)", y = "Reliability (%)") +
-  scale_x_discrete(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,110))
-
-p <- visualizeWDN(
-  nodes.data = scnOut[[i]]$nodes,
-  pipes.data = scnOut[[i]]$pipes,
-  background.map = mapFriesland,
-  node.fill.var = "rel",
-  node.size.var = NULL,
-  edge.color.var = NULL,
-  edge.size.var = NULL)
-
-
-
-# Summary Results ..............................................................
-
-# Calculate per pipe statistics
-d<-1
-
-
-demandT_range <- scn_tbl %>% pull(demandT) %>% unique()
-
-for (x in 1:length(demandT_range)) {
+#load("./results/v9/scn_7500_.rdata")
+trend_id_all <- 16
+scn_trends_ids <- c(unique(scn_mat$trend_id), trend_id_all)
+scn_trends_labels2 <-  c(scn_trends_labels, "ALL")
   
-  demandT_x <-demandT_range[x]
-  
-  scn_selection <- scn_tbl %>% filter(demandT == demandT_x) %>% pull(id)
-  
-  pipesOut <- lapply(1:num_scn, function(x) scnOut[[x]]$pipes) %>%
-    bind_rows(.id = "scn")  %>% 
-    filter(scn %in% scn_selection)  
-  
-  nodesOut <- lapply(1:num_scn, function(x) scnOut[[x]]$nodes) %>%
-    bind_rows(.id = "scn") %>% 
-    filter(scn %in% scn_selection) %>%
-    group_by(id) %>%
-    summarize(meanRel = mean(rel), countRel = sum(rel==100)) %>%
-    mutate(countRel = round(countRel/length(scn_selection) * 100,0))
-  
-  
-  nodesOut_summary <- nodes_data_base %>% 
-    left_join(nodesOut, by = "id")
-  
-  pipesOut_summary <- pipes_data_base 
-  
-  ### Count of adeqauate performance outcomes
-  
-  p1 <- visualizeWDN(
-    nodes.data = nodesOut_summary,
-    pipes.data = pipesOut_summary,
-    background.map = mapFriesland,
-    node.fill.var = "countRel",
-    node.size.var = "discharge",
-    edge.color.var = "flowdir",
-    edge.size.var = "diameter") +
-    theme(legend.position = "none") +
-    scale_fill_gradient2(low = "red", mid = "white", high = "white", midpoint = 99, 
-                         limits = c(0, 100),
-                         breaks = c(0, 20, 40, 60, 80, 99, 100)) 
-  
-  p2 <- ggplot(nodesOut_summary %>% filter(type == "demand"), 
-               aes(x = reorder(id, -countRel), y = countRel)) +
-    theme_bw() +
-    geom_bar(aes(fill = countRel), stat="identity") +
-    coord_flip() +
-    scale_fill_gradient2(low = "red", mid = "white", high = "white", midpoint = 99, 
-                         limits = c(0, 100),
-                         breaks = c(0, 20, 40, 60, 80, 99, 100)) +
-    labs(y = "Robustness score", x = "Node Ids", color = "") +
-    guides(fill = FALSE)
-  
-  p <- cowplot::plot_grid(p1, p2, rel_widths = c(3,1), align = c("hv"))
-  ggsave(filename = paste0("robustness_dem",demandT_x,".png"), height = 8, width = 11)
-  
-  
-  ### Average reliablity accross scenarios 
-  
-  p1 <- visualizeWDN(
-    nodes.data = nodesOut_summary,
-    pipes.data = pipesOut_summary,
-    background.map = mapFriesland,
-    node.fill.var = "meanRel",
-    node.size.var = "discharge",
-    edge.color.var = "flowdir",
-    edge.size.var = "diameter") +
-    theme(legend.position = "none") +
-    scale_fill_gradient2(low = "red", mid = "white", high = "white", midpoint = 99, 
-                         limits = c(0, 100),
-                         breaks = c(0, 20, 40, 60, 80, 99, 100)) 
-  
-  
-  p2 <- ggplot(nodesOut_summary %>% filter(type == "demand"), 
-               aes(x = reorder(id, -meanRel), y = meanRel)) +
-    theme_bw() +
-    geom_bar(aes(fill = meanRel), stat="identity", color = "gray90") +
-    coord_flip() +
-    scale_fill_gradient2(low = "red", mid = "white", high = "white", midpoint = 99, 
-                         limits = c(0, 100),
-                         breaks = c(0, 20, 40, 60, 80, 99, 100)) +
-    labs(y = "Mean Reliability", x = "Node Ids", color = "") +
-    guides(fill = FALSE)
-  
-  p <- cowplot::plot_grid(p1, p2, rel_widths = c(2,1), align = c("hv"))
-  ggsave(filename = paste0("meanRel_dem",demandT_x,".png"), height = 8, width = 12)
+# Store results in lists
+nodesOut <- list()
+pipesOut <- list()
 
 
 
+# Calculate per node statistics for each scenario
+nodesOut_scenario_summary <- list()
+pipesOut_scenario_summary <- list()
+network_scenario_summary <- list()
 
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#::::::::::::::::::::: GRAPH THEORY ::::::::::::::::::::::::::::::::::::::::::::
-
-
-metricNames <- c("linkdens", 
-                 "avgdegree", 
-                 "diameter", 
-                 "clustering", 
-                 "articdens", 
-                 "bridgedens")
-
-designNames <- paste0("Design ", 1:dmax)
-nMetrics <- list()
-edgeCon <- vector(mode = "list", length = dmax)
-
+# scnOut_all: for all designs and scenarios list of full node and pipe results
+#nodesOut: for all scenarios, list of full node results parsed...
+#pipesOut: for all scenarios, list of full node results parsed...
 
 for (d in 1:dmax) {
   
-  # Read-in network data 
-  nodes_d <- nodes_data[[d]]
-  pipes_d <- pipes_data[[d]]
+  # :::::::::::: Results post-processing :::::::::::::::::::::::::::::::::::::::
   
-  # Set demand and supply node indices
-  snodes <- nodes_d$id[which(nodes_d$type == "supply")]
-  snodes_labs <- nodes_d %>% filter(id %in% snodes) %>% pull(label)
-  
-  dnodes <- nodes_d$id[which(nodes_d$type == "demand")]
-  
-  # Number of nodes & links
-  nnodes <- nrow(nodes_d)
-  npipes <- nrow(pipes_d)
-  
-  
-  # Set spare capacity
-  nodes_d$discharge[snodes] <- nodes_d$discharge[snodes] * 1.05
-  
-  
-  # Define network as undirected
-  G <- graph_from_data_frame(d=pipes_d, vertices=nodes_d, directed = FALSE) 
-  
-  #### Edge connectivity matrix
-  foo <- matrix(NA, nrow = length(dnodes), ncol = length(snodes))
-  for (d in 1:length(dnodes)) {
-    foo[d,] <- sapply(snodes, function(x) 
-      edge_connectivity(G, source = dnodes[d], target = x))
-  }
-  edgeCon[[d]] <- tibble(id = dnodes) %>% bind_cols(as_tibble(foo)) %>% 
-    setNames(c("id", snodes_labs))
-  
-  
-  #### Bridges in the network 
-  pipes_d$bridge <- 0
-  num_comp <- length(decompose.graph(G))
-  for (x in 1:npipes) {
-    G_sub <- delete.edges(G, x)
-    if (length(decompose.graph(G_sub)) > num_comp) pipes_d$bridge[x] <- 1
-  }
-  
-  # Calculate Graph Measures
-  nMetrics$linkdens   <- edge_density(G, loops = TRUE)
-  nMetrics$avgdegree  <- mean(degree(G))
-  nMetrics$diameter   <- diameter(G, directed = FALSE)   
-  nMetrics$clustering <- transitivity(G, type="global")
-  nMetrics$articdens  <- length(articulation_points(G))/nnodes
-  nMetrics$bridgedens <- if(i %in% 1:2) {NA} else {
-    length(which(bridge(G, directed = FALSE, normalize = TRUE)$`Bridge Strength` > 0))/npipes}
+  nodesOut[[d]] <- lapply(1:smax, function(x) scnOut_all[[d]][[x]]$nodes) %>%
+    bind_rows(.id = "scn") %>% 
+    mutate(scn = siter[as.numeric(scn)]) %>%
+    select(scn, id, label, lat, lon, type, discharge, disuse, ind_ratio, sim, rel) %>%
+    left_join(scn_mat, by = "scn")
 
+  pipesOut[[d]] <- lapply(1:smax, function(x) scnOut_all[[d]][[x]]$pipes) %>%
+    bind_rows(.id = "scn") %>%
+    mutate(scn = siter[as.numeric(scn)]) %>%
+    select(scn, start, end, id, length, diameter, disuse, q_max, sim, usage) %>%
+    left_join(scn_mat, by = "scn")
+  
+  #::::::::: Results summarized per node/ per trend scenario :::::::::::::::::::
+  
+  nodesOut_scenario_summary_all <- nodesOut[[d]] %>%
+    group_by(id) %>%
+    summarize(mrel = round(sum(sim)/sum(discharge) * 100),
+              robust = 100 * length(which(rel>=rel_threshold))/n()) %>%
+    mutate(trend_id = trend_id_all) %>%
+    right_join(nodes_data[[d]], by = "id")
+                
+  nodesOut_scenario_summary[[d]] <- nodesOut[[d]] %>%
+    group_by(id, trend_id) %>%
+    summarize(mrel = round(sum(sim)/sum(discharge) * 100),
+              robust = 100 * length(which(rel>=rel_threshold))/n()) %>%
+    right_join(nodes_data[[d]], by = "id") %>%
+    bind_rows(nodesOut_scenario_summary_all) %>%
+    arrange(trend_id, id)
+  
+  pipesOut_scenario_summary_all <- pipesOut[[d]] %>%
+    group_by(id) %>%
+    summarize(linkuse = round(sum(sim)/sum(q_max) * 100)) %>%
+    mutate(trend_id = trend_id_all) %>%
+    right_join(pipes_data[[d]], by = "id")
+  
+  pipesOut_scenario_summary[[d]] <- pipesOut[[d]] %>%
+    group_by(id, trend_id) %>%
+    summarize(linkuse = round(sum(sim)/sum(q_max) * 100)) %>%
+    right_join(pipes_data[[d]], by = "id") %>%
+    bind_rows(pipesOut_scenario_summary_all)  %>%
+    arrange(trend_id, id)
+  
+  
+  #::::::::: Network results per trend scenario ::::::::::::::::::::::::::::::::
+  
+  # Pipes
+  network_scenario_summary_pipes_all <- pipesOut[[d]] %>%
+    filter(disuse == 0) %>%
+    summarize(linkuse = round(sum(sim)/sum(q_max) * 100)) %>%
+    mutate(trend_id = trend_id_all)
+    
+  network_scenario_summary_pipes <- pipesOut[[d]] %>%
+    filter(disuse == 0) %>%
+    group_by(trend_id) %>%    
+    summarize(linkuse = round(sum(sim)/sum(q_max) * 100)) %>%
+    bind_rows(network_scenario_summary_pipes_all)
+  
+  # Demand nodes
+  network_scenario_summary_dnodes_all <- nodesOut[[d]] %>%
+    filter(type == "demand") %>% 
+    filter(disuse == 0) %>%
+    summarize(mrel = round(sum(sim)/sum(discharge) * 100),
+              robust = 100 * length(which(rel>=rel_threshold))/n()) %>%
+    mutate(trend_id = trend_id_all)
+  
+  network_scenario_summary_dnodes <-  nodesOut[[d]] %>%
+    filter(type == "demand") %>% 
+    filter(disuse == 0) %>%
+    group_by(trend_id) %>% 
+    summarize(mrel = round(sum(sim)/sum(discharge) * 100),
+              robust = 100 * length(which(rel>=rel_threshold))/n()) %>%
+    bind_rows(network_scenario_summary_dnodes_all)
+  
+  #Supply nodes
+  network_scenario_summary_snodes_all <- nodesOut[[d]] %>%
+    filter(type == "supply") %>% 
+    filter(disuse == 0) %>%
+    summarize(supuse = round(sum(sim)/sum(discharge) * 100)) %>%
+    mutate(trend_id = trend_id_all)
+  
+  network_scenario_summary_snodes <-  nodesOut[[d]] %>%
+    filter(type == "supply") %>% 
+    filter(disuse == 0) %>%
+    group_by(trend_id) %>% 
+    summarize(supuse = round(sum(sim)/sum(discharge) * 100)) %>%
+    bind_rows(network_scenario_summary_snodes_all)
+  
+  network_scenario_summary[[d]] <- network_scenario_summary_dnodes %>%
+    left_join(network_scenario_summary_snodes, by = "trend_id") %>%
+    left_join(network_scenario_summary_pipes, by = "trend_id") %>%
+    gather(key = variable, value = value, -trend_id) %>%
+    spread(key = trend_id, value = value)   
 }
 
 
+################################################################################
+
+# RESULTS VISUALIZATION --------------------------------------------------------
+
+xmax <- length(scn_trends_labels2)
+
+### Visualize robustness & resilience over scenarios
+for (d in 1:dmax) {
+
+  # Loop over trend scenarios
+  for (x in 1:xmax) {
+    
+    x_index <- scn_trends_ids[x]
+    
+    # Current trend scenario
+    nodesOut_summary_c <- nodesOut_scenario_summary[[d]] %>% 
+      filter(trend_id == x_index)
+    
+    nodesOut_summary_c_base <- nodesOut_scenario_summary[[1]] %>% 
+      filter(trend_id == x_index) 
+    
+    pipesOut_summary_c <- pipesOut_scenario_summary[[d]] %>% 
+      filter(trend_id == x_index)
+    
+    pipesOut_summary_c_base <- pipesOut_scenario_summary[[1]] %>% 
+      filter(trend_id == x_index) 
+    
+    network_summary_c <- network_scenario_summary[[d]][,c(1,x+1)]
+    
+    p1 <- visualizeWDN(
+      nodes.data = nodesOut_summary_c,
+      pipes.data = pipesOut_summary_c,
+      background.map = mapFriesland,
+      node.fill.var = "robust",
+      node.size.var = "discharge",
+      edge.color.var = "linkuse",
+      edge.size.var = "diameter",
+      show.legend = FALSE,
+      plot.title = scn_trends_labels2[x]) 
+    
+    
+    tb <- network_summary_c %>% select(-trend_id) %>%
+      gather(key = Metric, value = "[%]") %>%
+      mutate(`[%]` = round(`[%]`,0)) %>%
+      mutate(Metric = factor(Metric, 
+                             levels = c("robustness", "mean_rel", "link_usage"),
+                             labels = c("Robustness", "Mean Reliability","Link Cap. Usage")))
+    
+    df <- tibble(x = 0.001, y = 0.001, tb = list(tb))
+
+    p1 <- p1 + geom_table_npc(data = df, aes(npcx=x, npcy=y, label = tb), 
+                                             size = 3, table.hjust = 0,
+                            table.theme = ttheme_gtstripes) 
 
 
 
-
-
-
-
-
-
+    p2 <- ggplot(nodesOut_summary_c %>% filter(type == "demand"), 
+                 aes(x = reorder(id, -rel_count), y = rel_count)) +
+      theme_bw(base_size = 12) +
+      geom_point(aes(fill = rel_count), color = "black", 
+                  shape = 21, size = point_size, stroke = 1) +
+      coord_flip() +
+      scale_y_continuous(limits = c(0, 100), breaks = seq(0,100,50)) +
+      scale_fill_gradient2(low = "red", mid = "white", high = "white", midpoint = 99, 
+                           limits = c(0, 100),
+                           breaks = c(0, 20, 40, 60, 80, 99, 100),
+                           labels = c(0, 20, 40, 60, 80, 99, 100)) +
+      labs(y = "", x = "", color = "") +
+      guides(fill = FALSE)  +
+      ggtitle(label = "", subtitle = "Nodes")
+  
+    
+    p3 <- ggplot(pipesOut_summary_c, 
+                 aes(x = reorder(label, -usage_mean), y = usage_mean)) +
+      theme_bw(base_size = 12) +
+      geom_point(aes(fill = usage_mean), color = "gray50", 
+                 alpha = 0.9, shape = 21, size = point_size, stroke = 1) +
+      coord_flip() +
+      scale_y_continuous(limits = c(0, 100), breaks = seq(0,100,50)) +
+      scale_fill_viridis(
+        name = "Pipe\nUse [%]",
+        limits = c(0,100),
+        breaks = c(0,20, 40, 60, 80, 99, 100),
+        labels = c(0, 20, 40, 60, 80,"", 100),
+        guide = guide_colorbar(order = 3, barheight = unit(5, 'cm')), direction = -1) +
+      labs(y = "", x = "", color = "") +
+      guides(fill = FALSE) +
+      ggtitle(label = "", subtitle = "Linkages")
+    
+    
+    if (d > 1) {
+      
+      p2 <- p2 + geom_point(data = nodesOut_summary_c_base %>% filter(type == "demand"),
+                            shape = 21, size = point_size, color = alpha("black", .5),
+                            fill = alpha("gray95", .1))
+      
+      p3 <-  p3 + geom_point(data = pipesOut_summary_c_base,
+                             shape = 21, size = point_size, color = alpha("black", .5),
+                             fill = alpha("gray95", .1))
+    }
+    
+    p <- cowplot::plot_grid(p1, p2, p3, nrow = 1, rel_widths = c(4,1.25,1.25), align = c("hv"))
+                            #labels = c("a)", "b)","c)"))
+    
+    ggsave(filename = paste0(outPath, "scn",x,"_d", d,"_", scn_trends_labels2[x],".png"), 
+           height = 8*0.9, width = 13*0.9)
+    
+  }
+  
+}
 

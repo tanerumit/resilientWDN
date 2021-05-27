@@ -12,15 +12,23 @@ require(ggmap)
 require(ggnetwork)
 require(ggpmisc)
 require(ggnewscale)
+require(scales)
+require(viridis)
+require(cowplot)
+
+# spatial analysis
+require(geosphere)
 
 # Data load/transfer
-library(readr) 
-library(readxl)
+require(readr) 
+require(readxl)
 
 # Data analysis
-library(lubridate) 
-library(dplyr) 
-library(tidyr) 
+require(lubridate) 
+require(dplyr) 
+require(tibble)
+require(tidyr) 
+require(magrittr)
 
 setTimeLimit(cpu = Inf, elapsed = Inf, transient = FALSE)
 setSessionTimeLimit(cpu = Inf, elapsed = Inf)
@@ -34,9 +42,9 @@ setSessionTimeLimit(cpu = Inf, elapsed = Inf)
 #Use reticulate package to run python code from R
 
 # Specify the virtual python environment
-reticulate::use_miniconda(condaenv = "resilientWDN", required = TRUE)
+reticulate::use_virtualenv(virtualenv = "C:/Users/taner/OneDrive - Stichting Deltares/_WS/GITHUB/resilientWDN/venv", required = TRUE)
+#reticulate::use_miniconda(condaenv = "resilientWDN", required = TRUE)
 reticulate::source_python("./src/functions/calculate_network2.py")
-
 
 
 ############# Functions & Other settings ---------------------------------------
@@ -65,3 +73,8 @@ paths_from_to <- function(graph, source, dest) {
   lapply(paths, function(path) {V(graph)[unlist(path)]})
 }
 
+expandGridDf <- function (...) 
+{
+  Reduce(function(...) merge(..., by = NULL), list(...)) %>% 
+    as_tibble()
+}

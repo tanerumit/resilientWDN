@@ -1,40 +1,22 @@
 
-
-# # annual economic development rate [%/year]
-# edev.change = 0.0005
-# # technological development rate [-]
+# 
+# edev.change = 0.0005   
 # tdev.change = 0.01
-# # annual increase in temperature [DegC/year]
-# temp.change = 0.04
-# # annual price development rate [%/year]
-# price.change = 0.01
-# # annual population growth rate [%/year]
-# pop.change  = 0.01
-# # network coverage change factor [%]
-# dnetwork.change = 0
-# # water quality change factor [%]
+# temp.change = 0.04       
+# price.change = 0.01        
+# pop.change  = 0.01 
+# dnetwork.change = 0.01
 # wqual.change = 0.005
-# # Economic development elasticity of water demand [-]
-# edev.elasticity = 1.0
-# # Price elesticity of water demand [-]
-# price.elasticity = -0.2
-# # Temperature elasticity of water demand [C^-1]
-# temp.elasticity = 0.03  
-# # ratio of industrial demand to total demand [-]
-# industry.ratio = 0.3
-# # peak factor for domestic demand
+# edev.elasticity = 1.0       
+# price.elasticity = -0.2      
+# temp.elasticity = 0.03     
 # dom.peak.factor = 1
-# # peak factor for industrial demand
 # ind.peak.factor = 1
-# # future year to be simulated [-]
-# year.sim = 2031
-# # reference (benchmark) year [-]
-# year.ref = 2021
-# # node data as table
-# nodes.data = nodes_data
-# # pipe data as table
-# pipes.data = pipes_data
-
+# year.sim = 2021       
+# year.ref = 2021        
+# nodes.data = nodes_data[[d]]       
+# pipes.data = pipes_data[[d]]
+# global.output = TRUE
 
 #' Title
 #'
@@ -82,8 +64,9 @@ simulateWDN <- function(edev.change = 0.0005,
 {
   
   # Demand & supply node indices
-  dnodes <- nodes.data$id[which(nodes.data$type == "demand")]
-  snodes <- nodes.data$id[which(nodes.data$type == "supply")]
+  dnodes_index <- which(nodes.data$type == "demand")
+  snodes_index <- which(nodes.data$type == "supply")  
+  
   dnodes_num <- length(dnodes)
   snodes_num <- length(snodes)
   
@@ -96,12 +79,12 @@ simulateWDN <- function(edev.change = 0.0005,
   pop.change_pernode <- rep(pop.change, dnodes_num) 
   
   # Demand adjustment factors
-  edev_factor <- (1 + edev.change) ^ yind  #economic development factor for future year
-  temp_factor <-  1 + temp.change * temp.elasticity * yind  # temperature factor for future year
-  tdev_factor <- (1 + tdev.change) ^ yind #technological development factor for future year (for industrial demand)
-  price_factor <- (1 + price.change * price.elasticity) ^ yind # price price factor for future year
-  pop_factor <- (1 + pop.change_pernode) ^ yind #population factor for future year (per node)
-  reuse_factor <- ifelse(yind < 23, 1, 0.90) # water reuse factor for future year
+  edev_factor     <- (1 + edev.change) ^ yind  #economic development factor for future year
+  temp_factor     <-  1 + temp.change * temp.elasticity * yind  # temperature factor for future year
+  tdev_factor     <- (1 + tdev.change) ^ yind #technological development factor for future year (for industrial demand)
+  price_factor    <- (1 + price.change * price.elasticity) ^ yind # price price factor for future year
+  pop_factor      <- (1 + pop.change_pernode) ^ yind #population factor for future year (per node)
+  reuse_factor    <- ifelse(yind < 23, 1, 0.90) # water reuse factor for future year
   dnetwork_factor <- (1 + dnetwork.change) ^ yind  # change in network demand percentage for future year
   
   # Redidential demand adjustment per node
@@ -111,18 +94,17 @@ simulateWDN <- function(edev.change = 0.0005,
   ind_demand_adj <- edev_factor * tdev_factor * temp_factor * dnetwork_factor * ind.peak.factor 
   
   # Set demand per node 
-  demand_per_node_res <- nodes.data$discharge[dnodes] * (1-nodes.data$ind_ratio[dnodes]) * res_demand_adj
-  demand_per_node_ind <- nodes.data$discharge[dnodes] * nodes.data$ind_ratio[dnodes] * ind_demand_adj
+  demand_per_node_res <- nodes.data$discharge[dnodes_index] * (1-nodes.data$ind_ratio[dnodes_index]) * res_demand_adj
+  demand_per_node_ind <- nodes.data$discharge[dnodes_index] * nodes.data$ind_ratio[dnodes_index] * ind_demand_adj
   
   # Total demand per node
-  node_demand_update <- round(demand_per_node_res + demand_per_node_ind,2)
-  nodes.data$discharge[dnodes] <- node_demand_update
+  nodes.data$discharge[dnodes_index]  <- round(demand_per_node_res + demand_per_node_ind,2)
+   
   
   #:::::::::::::: SUPPLY MODULE  :::::::::::::::::::::::::::::::::::::::::::::::
-  
   quality_factor <- (1 +  wqual.change) ^ yind
-  node_supply_update = nodes.data$discharge[snodes]/quality_factor
-  nodes.data$discharge[snodes] <- node_supply_update
+  nodes.data$discharge[snodes_index] = nodes.data$discharge[snodes_index]/quality_factor
+
 
   #::::::::::::: NETWORK MODULE ::::::::::::::::::::::::::::::::::::::::::::::::
   
@@ -143,8 +125,8 @@ simulateWDN <- function(edev.change = 0.0005,
   if(global.output == TRUE) {
     
     # global_results
-    result <- tibble(Parameter = c("T. Demand [m3]", "Available Sup. [m3]", "Allocated Sup. [m3]", 
-                              "Reliability [%]", "Link usage [%]"), 
+    result <- tibble(Parameter = c("T. Demand [m3]", "Available Sup. [m3]", 
+            "Allocated Sup. [m3]", "Reliability [%]", "Link usage [%]"), 
                      value = NA)
 
     result$value[1] <- (nodes_res %>% filter(type == "demand") %>% 
